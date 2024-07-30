@@ -7,13 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 var c = make(chan int)
 var b = 0
 var wg sync.WaitGroup
 
-func walkDir(dir string) error {
+func Inquire(dir string) error {
 	// 使用filepath.Walk遍历目录
 	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -25,7 +26,7 @@ func walkDir(dir string) error {
 			wg.Add(1)
 			go func(path string) {
 				defer wg.Done()
-				count := Bb(path)
+				count := QueryCode(path)
 				c <- count
 			}(path)
 		}
@@ -34,7 +35,7 @@ func walkDir(dir string) error {
 	})
 }
 
-func Bb(path string) int {
+func QueryCode(path string) int {
 	file, err := os.Open(path) /* 打开所要查询的文件 */
 	if err != nil {
 		log.Fatal(err)
@@ -53,13 +54,14 @@ func Bb(path string) int {
 	return count
 }
 
-func Cc() {
+func Count() {
 	for count := range c {
 		b += count
 	}
 }
 
 func main() {
+	startT := time.Now()
 	// 指定要遍历的目录
 	if len(os.Args) < 2 {
 		fmt.Println("请提供要遍历的目录作为命令行参数")
@@ -68,21 +70,23 @@ func main() {
 
 	dir := os.Args[1]
 
-	bb := make(chan bool)
+	stopChan := make(chan bool)
 	go func() {
-		Cc()
-		bb <- true
+		Count()
+		stopChan <- true
 	}()
 
 	// 调用walkDir函数
-	if err := walkDir(dir); err != nil {
+	if err := Inquire(dir); err != nil {
 		fmt.Println("遍历目录时出错:", err)
 	}
 
 	wg.Wait()
 	close(c)
 
-	<-bb
+	<-stopChan
 
 	fmt.Println("所有代码行数加起来有：", b)
+	tc := time.Since(startT) //计算耗时
+	fmt.Printf("time cost = %v\n", tc)
 }
