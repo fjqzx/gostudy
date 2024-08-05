@@ -1,8 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
-	"io"
+	"gitub.com/fjqzx/xiangmu/proto"
 	"net"
 	"sync"
 	"time"
@@ -31,28 +32,27 @@ func NewServer(ip string, port int) *Server {
 }
 
 // 监听Messager广播消息channel的foroutine，一旦有消息就发送给全部的在线User
-func (this *Server) ListenMessager() {
+func (s *Server) ListenMessager() {
 	for {
-		msg := <-this.Message
-		this.mapLock.Lock()
-		for _, cli := range this.OnLineMap {
+		msg := <-s.Message
+		s.mapLock.Lock()
+		for _, cli := range s.OnLineMap {
 			cli.C <- msg
 		}
-		this.mapLock.Unlock()
+		s.mapLock.Unlock()
 	}
 }
 
 // 广播信息的方法
-func (this *Server) BroadCast(user *User, msg string) {
-	sendMsg := "{" + user.Addr + "}" + user.Name + ":" + msg
-
-	this.Message <- sendMsg
+func (s *Server) BroadCast(msg proto.Message) {
+	sendMsg, _ := json.Marshal(msg)
+	s.Message <- string(sendMsg)
 }
 
-func (this *Server) Handler(conn net.Conn) {
+func (s *Server) Handler(conn net.Conn) {
 	//fmt.Printf("连接建立成功, addr:%s\n", conn.RemoteAddr().String())
 
-	user := NewUser(conn, this)
+	user := NewUser(conn, s)
 
 	user.Online()
 
@@ -65,21 +65,17 @@ func (this *Server) Handler(conn net.Conn) {
 
 		for {
 			n, err := conn.Read(buf)
-			if n == 0 {
+			if err != nil || n == 0 {
 				user.Offline()
 				return
 			}
 
-			if err != nil && err != io.EOF {
-				fmt.Println("Conn Read err:", err)
-				return
-			}
-
 			//提取用户的消息（去除‘\n')
-			msg := string(buf[:n-1])
+			msgBytes := buf[:n]
+			fmt.Printf("接收到消息：%s\n", string(msgBytes))
 
 			//用户针对msg进行消息处理
-			user.DoMessage(msg)
+			user.DoMessage(msgBytes)
 
 			//用户的任意消息，代表当前用户是一个活跃的
 			isLive <- true
@@ -91,11 +87,11 @@ func (this *Server) Handler(conn net.Conn) {
 		case <-isLive:
 		//	当前用户是活跃的，应该重置定时器
 		//不做任何事，为了激活select，更新下面的定时器
-		case <-time.After(time.Second * 300):
+		case <-time.After(time.Second * 3000):
 			//	已经超时
 
 			//将当前的User强制关闭
-			user.SendMsg("You got kicked")
+			// user.SendMsg("You got kicked")
 
 			//销毁用的资源
 			conn.Close()
@@ -109,9 +105,9 @@ func (this *Server) Handler(conn net.Conn) {
 	select {}
 }
 
-func (this *Server) Start() {
+func (s *Server) Start() {
 	// 监听
-	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", this.Ip, this.Port))
+	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", s.Ip, s.Port))
 	if err != nil {
 		fmt.Println("net.Listen err:", err)
 		return
@@ -119,10 +115,10 @@ func (this *Server) Start() {
 
 	defer listener.Close()
 
-	fmt.Printf("服务开始监听，IP：%s，端口号：%d\n", this.Ip, this.Port)
+	fmt.Printf("服务开始监听，IP：%s，端口号：%d\n", s.Ip, s.Port)
 
 	// 启动监听Message的goroutine
-	go this.ListenMessager()
+	go s.ListenMessager()
 
 	for {
 		// 等待客户端连接
@@ -131,6 +127,6 @@ func (this *Server) Start() {
 			fmt.Println("listener accept err:", err)
 		}
 
-		go this.Handler(conn)
+		go s.Handler(conn)
 	}
 }
