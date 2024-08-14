@@ -249,6 +249,7 @@ func (client *Client) DealResponse() {
 
 }
 
+// 文件传输
 func (client *Client) File() {
 	client.SelectUsers()
 	fmt.Println("请选择文件传输对象，exit退出")
