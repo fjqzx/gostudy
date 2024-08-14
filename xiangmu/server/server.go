@@ -61,6 +61,7 @@ func (s *Server) Handler(conn net.Conn) {
 
 	//接收当前用户上线消息
 	go func() {
+
 		buf := make([]byte, 4096)
 
 		for {

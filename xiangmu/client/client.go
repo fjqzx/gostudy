@@ -6,7 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"gitub.com/fjqzx/xiangmu/proto"
+	"io"
 	"net"
+	"os"
+	"path/filepath"
 )
 
 type Client struct {
@@ -37,6 +40,7 @@ func NewClient(serverIP string, serverPort int) *Client {
 	}
 
 	client.conn = conn
+	client.Name = conn.LocalAddr().String()
 	//	返回对象
 	return client
 }
@@ -55,11 +59,12 @@ func (client *Client) menu() bool {
 	fmt.Println("2.私聊模式")
 	fmt.Println("3.修改用户名")
 	fmt.Println("4.查询在线用户")
+	fmt.Println("5.文件传输")
 	fmt.Println("0.退出")
 
 	fmt.Scanln(&flag)
 
-	if flag <= 4 && flag >= 0 {
+	if flag <= 5 && flag >= 0 {
 		client.flag = flag
 		return true
 	} else {
@@ -84,7 +89,11 @@ func (client *Client) Run() {
 			//fmt.Println("3.修改用户名")
 			client.UpdateName()
 		case 4:
+			// 查询在线用户
 			client.SelectUsers()
+		case 5:
+			//文件传输
+			client.File()
 		}
 	}
 }
@@ -95,17 +104,18 @@ func (client *Client) DealResponse() {
 	// io.Copy(os.Stdout, client.conn)
 
 	reader := bufio.NewReader(client.conn)
-	buf := make([]byte, 1024)
+	buf := make([]byte, 4096)
 	for {
 		// 读取服务端发送的消息
 		n, err := reader.Read(buf)
 		if err != nil {
 			fmt.Println("conn read error: ", err)
-			return
+			os.Exit(1)
 		}
 
 		// 获取到的消息
 		msgBytes := buf[:n]
+		fmt.Printf("消息大小：%d 内容：%s\n", n, string(msgBytes))
 
 		// 将消息解析成结构体
 		var msg proto.Message
@@ -113,6 +123,9 @@ func (client *Client) DealResponse() {
 
 		// 根据消息类型进行处理消息
 		switch msg.Type {
+		case proto.MsgTypeError: // 处理错误消息
+			fmt.Printf("[ERROR] 错误消息：%s\n", string(msg.Data))
+
 		case proto.MsgTypeOnline: // 处理上线消息
 			var online proto.Online
 			_ = json.Unmarshal(msg.Data, &online)
@@ -141,7 +154,156 @@ func (client *Client) DealResponse() {
 			_ = json.Unmarshal(msg.Data, &group)
 			fmt.Printf("用户名：%s : %s\n", group.Miname, group.Information)
 
+		case proto.MsgTypeTransfer:
+			var transfer proto.Transfer
+
+			_ = json.Unmarshal(msg.Data, &transfer)
+			fmt.Printf("用户名：%s ,向您传输文件。\n", transfer.Miname)
+
+			// 默认存放在 data 目录
+			_ = os.MkdirAll("./data", 777)
+			a := filepath.Join("data", transfer.Filename)
+
+			//fmt.Print("请输入文件存放地址:")
+			//var f string
+			//fmt.Scanln(&f)
+			////a := filepath.Join(f, transfer.Filename)
+			//a := f + "\\" + transfer.Filename
+
+			fa, err := os.Create(a)
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+
+			l, err := fa.WriteString(string(transfer.Information))
+			if err != nil {
+				fmt.Println(err)
+				fa.Close()
+				return
+			}
+			fmt.Println(l, "bytes written successfully")
+			err = fa.Close()
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+			/// H:\2024\gostudy\kkk.go
+			//for {
+			//	fmt.Println("同意请输 1 ，不同意请输 2")
+			//	var a int
+			//	fmt.Scanln(&a)
+			//	if a == 1 {
+			//		fmt.Println("yse")
+			//		sdf := proto.Private{Miname: transfer.Name, Name: transfer.Miname, Information: "同意您的文件传输申请！"}
+			//		sdaBytes, _ := json.Marshal(sdf)
+			//		Message := proto.Message{Type: proto.MsgTypePrivate, Data: sdaBytes}
+			//		senMsg, _ := json.Marshal(Message)
+			//		_, err := client.conn.Write([]byte(senMsg))
+			//		if err != nil {
+			//			fmt.Println("conn.Write err", err)
+			//			//break
+			//		}
+			//
+			//		fmt.Println("请输入文件存放地址")
+			//		var f string
+			//		fmt.Scanln(&f)
+			//		a := f + "\\" + transfer.Filename
+			//
+			//		fa, err := os.Create(a)
+			//		if err != nil {
+			//			fmt.Println(err)
+			//			return
+			//		}
+			//
+			//		l, err := fa.WriteString(string(transfer.Information))
+			//		if err != nil {
+			//			fmt.Println(err)
+			//			fa.Close()
+			//			return
+			//		}
+			//		fmt.Println(l, "bytes written successfully")
+			//		err = fa.Close()
+			//		if err != nil {
+			//			fmt.Println(err)
+			//			return
+			//		}
+			//		return
+			//	} else if a == 2 {
+			//		sdf := proto.Private{Miname: transfer.Name, Name: transfer.Miname, Information: "不同意您的文件传输申请！"}
+			//		sdaBytes, _ := json.Marshal(sdf)
+			//		Message := proto.Message{Type: proto.MsgTypePrivate, Data: sdaBytes}
+			//		senMsg, _ := json.Marshal(Message)
+			//		_, err := client.conn.Write([]byte(senMsg))
+			//		if err != nil {
+			//			fmt.Println("conn.Write err", err)
+			//			break
+			//		}
+			//		return
+			//	} else {
+			//		fmt.Println("输入合法的数字")
+			//	}
+			//}
 		}
+	}
+
+}
+
+func (client *Client) File() {
+	client.SelectUsers()
+	fmt.Println("请选择文件传输对象，exit退出")
+	var b string
+	fmt.Scanln(&b)
+
+	if b != "exit" {
+		fmt.Print("请输入文件路径:")
+		var filename string
+		fmt.Scanln(&filename)
+
+		_file := filepath.Base(filename)
+		fmt.Println("文件名：", _file)
+		fil, _ := os.Open(filename)
+		defer fil.Close()
+		//// 使用Stat函数获取文件信息
+		//fileInfo, er := os.Stat(filename)
+		//if er != nil {
+		//	// 如果文件不存在或发生其他错误
+		//	fmt.Println("Error:", er)
+		//	return
+		//}
+		//
+		//// 使用Size()方法获取文件大小
+		//fileSize := fileInfo.Size()
+		//
+		//fmt.Println("文件大小：", fileSize)
+		buf := make([]byte, 4096)
+
+		var bytes []byte
+		for {
+			count, err := fil.Read(buf)
+
+			if err == io.EOF {
+				break
+			}
+
+			currBytes := buf[:count]
+
+			bytes = append(bytes, currBytes...)
+		}
+
+		sdf := proto.Transfer{Miname: client.Name, Name: b, Filename: _file, Information: bytes}
+		sdaBytes, _ := json.Marshal(sdf)
+		Message := proto.Message{Type: proto.MsgTypeTransfer, Data: sdaBytes}
+		senMsg, _ := json.Marshal(Message)
+		_, err := client.conn.Write(senMsg)
+		// 将字节切片转为字符串 最后打印出来文件内容
+		fmt.Println(string(sdf.Information))
+
+		if err != nil {
+			fmt.Println("conn.Write err", err)
+			return
+		}
+
 	}
 
 }
@@ -152,7 +314,7 @@ func (client *Client) SendMsg(msg proto.Message) {
 }
 
 func (client *Client) UpdateName() bool {
-	fmt.Println("请输入用户名：")
+	fmt.Print("请输入用户名：")
 	fmt.Scanln(&client.Name)
 
 	rename := proto.Rename{Name: client.Name}
@@ -221,7 +383,6 @@ func (client *Client) PrivateChat() {
 
 				//online := proto.Online{Name: u.Name, Addr: u.Addr}
 				//onlineMsg, _ := json.Marshal(online)
-
 				//发消息给服务器
 				//消息不为空则发送
 				//senMsg := proto.Private{Name: remoteName,Information: chaMsg}

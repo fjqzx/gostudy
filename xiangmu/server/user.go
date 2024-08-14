@@ -69,7 +69,10 @@ func (u *User) SendMsg(msg proto.Message) {
 	// 将结构体转换成切片
 	msgBytes, _ := json.Marshal(msg)
 	// 发送消息
-	_, _ = u.conn.Write(msgBytes)
+	_, err := u.conn.Write(msgBytes)
+	if err != nil {
+		fmt.Printf("消息发送失败，用户名：%s | 错误信息：%v\n", u.Name, err)
+	}
 }
 
 // 用户处理消息的业务
@@ -128,55 +131,20 @@ func (u *User) DoMessage(msgBytes []byte) {
 
 	case proto.MsgTypeGroup:
 		u.server.BroadCast(msg)
-	}
 
-	//// ！！！ 开始改造第一个协议 who
-	//if msg == "who" {
-	//	//	查询当前在线用户都有那些
-	//	u.server.mapLock.Lock()
-	//	for _, user := range u.server.OnLineMap {
-	//		onlineMsg := "{" + user.Addr + "}" + user.Name + ":" + "在线...\n"
-	//		u.SendMsg(onlineMsg)
-	//	}
-	//	u.server.mapLock.Unlock()
-	//} else if len(msg) > 7 && msg[:7] == "rename|" {
-	//	//信息格式：rename|张三
-	//	newName := strings.Split(msg, "|")[1]
-	//	//判断name是否存在
-	//	_, ok := u.server.OnLineMap[newName]
-	//	if ok {
-	//		u.SendMsg("当前用户名已经被使用\n")
-	//	} else {
-	//		u.server.mapLock.Lock()
-	//		delete(u.server.OnLineMap, u.Name)
-	//		u.server.OnLineMap[newName] = u
-	//		u.server.mapLock.Unlock()
-	//		u.Name = newName
-	//		u.SendMsg("Your name changed successfully!" + u.Name + "\n")
-	//	}
-	//} else if len(msg) > 4 && msg[:3] == "to|" {
-	//	//获取对方的用户名
-	//	remoteName := strings.Split(msg, "|")[1]
-	//	if remoteName == "" {
-	//		u.SendMsg("to|name|message")
-	//		return
-	//	}
-	//	//根据对方的用户名，获取他的User对象
-	//	remoteUser, ok := u.server.OnLineMap[remoteName]
-	//	if !ok {
-	//		u.SendMsg("name NO!!")
-	//		return
-	//	}
-	//	//获取信息内容，通过他的User对象将内容发送过去
-	//	content := strings.Split(msg, "|")[2]
-	//	if content == "" {
-	//		u.SendMsg("message No!")
-	//		return
-	//	}
-	//	remoteUser.SendMsg(u.Name + ":" + content)
-	//} else {
-	//	u.server.BroadCast(u, msg)
-	//}
+	case proto.MsgTypeTransfer:
+		var transMsg proto.Transfer
+
+		_ = json.Unmarshal(msg.Data, &transMsg)
+		//remoteUser, ok := u.server.OnLineMap[remoteName]
+		remoteUser, ok := u.server.OnLineMap[transMsg.Name]
+		fmt.Println("找到文件接收用户：", remoteUser.Name)
+		if !ok {
+			u.SendMsg(proto.Message{Type: proto.MsgTypeError, Data: []byte("name No!")})
+			return
+		}
+		remoteUser.SendMsg(msg)
+	}
 }
 
 // 监听当前User channel的方法，一旦有消息，就直接发送给对客户端
